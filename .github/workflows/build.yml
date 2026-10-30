@@ -1,0 +1,265 @@
+name: Build
+
+# Two independent jobs:
+#   - web: typecheck + vite build for the client/server bundles.
+#     Fast, runs on every push/PR, catches TypeScript errors early.
+#   - android: builds the installable .apk via Capacitor + Gradle.
+#     Slower (Android SDK + Gradle download), so it's still on every
+#     push to keep a working APK always available as an artifact, but
+#     it's a separate job so a web-only typo doesn't waste Android
+#     build minutes, and an Android-only Gradle hiccup doesn't block
+#     web CI from reporting green.
+#
+# Required repository secrets (Settings → Secrets and variables →
+# Actions) before this workflow can succeed — see
+# docs/ANDROID_BUILD.md for the full explanation of each:
+#   VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY   — client Supabase config
+#   QADA_PRODUCTION_URL                          — absolute production URL
+#                                                    (e.g. https://qiadati.netlify.app)
+#                                                    used as the API base URL
+#                                                    baked into the APK build
+#                                                    only, since the APK is
+#                                                    bundled offline (no
+#                                                    server.url in
+#                                                    capacitor.config.ts) and
+#                                                    every relative /api/...
+#                                                    fetch call needs an
+#                                                    absolute URL to reach the
+#                                                    real deployed backend.
+#
+# Optional:
+#   ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD,
+#   ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD      — for a signed release
+#                                                    APK/AAB instead of
+#                                                    the default debug
+#                                                    signing (see the
+#                                                    "Sign release APK"
+#                                                    step below, which
+#                                                    is skipped entirely
+#                                                    when these aren't
+#                                                    set — a debug-signed
+#                                                    APK is still fully
+#                                                    installable for
+#                                                    internal team use,
+#                                                    just not upload­able
+#                                                    to the Play Store
+#                                                    as-is).
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      versionName:
+        description: "APK version name (e.g. 2.1.0). Leave blank to auto-derive from the run number."
+        required: false
+        type: string
+
+env:
+  NODE_VERSION: "20"
+
+jobs:
+  web:
+    name: Web (typecheck + build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The repo's packageManager field pins pnpm, but plain npm ci
+      # against the committed pnpm-lock.yaml isn't reliable — corepack
+      # gets us the exact pnpm version the project expects instead.
+      - name: Enable corepack (pnpm)
+        run: corepack enable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Build client + server
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_MEMBERS_PORTAL_URL: ${{ secrets.VITE_MEMBERS_PORTAL_URL }}
+          # AES-256 key (base64), shared with the members portal repo,
+          # used to decrypt member badge QR payloads — see
+          # client/lib/badgeCrypto.ts. Must be byte-identical in both
+          # repos' secrets or badges silently fail to decrypt.
+          VITE_BADGE_ENCRYPTION_KEY: ${{ secrets.VITE_BADGE_ENCRYPTION_KEY }}
+        run: pnpm build
+
+      - name: Upload web build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: qada-web-build
+          path: dist/
+          retention-days: 14
+
+  android:
+    name: Android (.apk)
+    runs-on: ubuntu-latest
+    # Only build the APK once the web app itself is known to
+    # typecheck — an APK wrapping a broken build helps no one, and
+    # this keeps Android build minutes from being spent on a commit
+    # that would have failed anyway.
+    needs: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Enable corepack (pnpm)
+        run: corepack enable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "21"
+
+      # android-actions/setup-android@v3 downloads a fresh cmdline-tools
+      # revision (the runner's preinstalled one is the wrong version) and
+      # then runs `sdkmanager --licenses` to accept the SDK package
+      # licenses. That's normally silent, but on the current runner image
+      # it drops into an interactive "Review licenses (y/N)?" prompt —
+      # there's no terminal in CI to answer it, so the process just exits
+      # 1. Pre-writing the accepted-license hashes ourselves means
+      # sdkmanager finds them already accepted and never prompts.
+      - name: Pre-accept Android SDK licenses
+        run: |
+          mkdir -p /usr/local/lib/android/sdk/licenses
+          echo "24333f8a63b6825ea9c5514f83c2829b004d1fee" > /usr/local/lib/android/sdk/licenses/android-sdk-license
+          echo "d56f5187479451eabf01fb78af6dfcb131a6481e" >> /usr/local/lib/android/sdk/licenses/android-sdk-license
+          echo "84831b9409646a918e30573bab4c9c91346d8abd" >> /usr/local/lib/android/sdk/licenses/android-sdk-license
+          echo "601085b94cd77f0b54ff86406957099ebe79c4d6" > /usr/local/lib/android/sdk/licenses/android-sdk-preview-license
+          echo "504667f4c0de7af1a06de9f4b1727b84351f2910" > /usr/local/lib/android/sdk/licenses/google-gdk-license
+          echo "33b6a2b64607f11b759f320ef9dff4ae5c47d97a" > /usr/local/lib/android/sdk/licenses/android-googletv-license
+          echo "d975f751698a77b662f1254ddbeed3901e976f5" > /usr/local/lib/android/sdk/licenses/intel-android-extra-license
+
+      - name: Set up Android SDK
+        env:
+          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+        run: |
+          SDKMANAGER=/usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER=/usr/local/lib/android/sdk/cmdline-tools/16.0/bin/sdkmanager
+          fi
+          yes | "$SDKMANAGER" --licenses || true
+          "$SDKMANAGER" "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+
+      - name: Build client (bundled into the APK — this is now the whole app)
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_MEMBERS_PORTAL_URL: ${{ secrets.VITE_MEMBERS_PORTAL_URL }}
+          # The APK has no backend of its own (offline-bundled, no
+          # server.url — see capacitor.config.ts), so every relative
+          # `/api/...` fetch call (client/lib/authService.ts,
+          # client/lib/offline/teamAccess.ts,
+          # client/lib/offline/syncQueue.ts) needs an absolute URL to
+          # reach the real deployed backend instead. The repository secret
+          # is named QADA_PRODUCTION_URL; VITE_API_BASE_URL is the
+          # build-time variable exposed to the client bundle.
+          VITE_API_BASE_URL: ${{ secrets.QADA_PRODUCTION_URL }}
+          # AES-256 key (base64), shared with the members portal repo,
+          # used to decrypt member badge QR payloads — see
+          # client/lib/badgeCrypto.ts. Must be byte-identical in both
+          # repos' secrets or badges silently fail to decrypt.
+          VITE_BADGE_ENCRYPTION_KEY: ${{ secrets.VITE_BADGE_ENCRYPTION_KEY }}
+        run: pnpm build:client
+
+      - name: Capacitor sync (copies dist/spa into the Android project)
+        run: npx cap sync android
+
+      # The Gradle wrapper JAR is a binary file that can't be
+      # meaningfully hand-authored as source (see android/gradle/wrapper/
+      # gradle-wrapper.properties, which IS committed and pins the
+      # Gradle version this generates). Regenerating it here, from the
+      # system Gradle the android-actions/setup-android action makes
+      # available, keeps the repo free of a committed binary while
+      # still producing the exact wrapper the pinned properties file
+      # specifies.
+      - name: Generate Gradle wrapper
+        working-directory: android
+        run: gradle wrapper --gradle-version 8.11.1
+
+      - name: Make gradlew executable
+        working-directory: android
+        run: chmod +x gradlew
+
+      - name: Decode release keystore (if configured)
+        id: keystore
+        working-directory: android/app
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        # `secrets` cannot be referenced directly inside a step's `if:`
+        # condition — GitHub Actions rejects that at parse time ("Unrecognized
+        # named-value: 'secrets'"). Exposing it via `env:` instead and
+        # testing the resulting shell variable here is the supported
+        # way to make a step conditional on whether a secret is set.
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > release.keystore
+            echo "has_keystore=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_keystore=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Determine version name
+        id: version
+        run: |
+          if [ -n "${{ inputs.versionName }}" ]; then
+            echo "name=${{ inputs.versionName }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=2.0.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Build debug APK
+        if: steps.keystore.outputs.has_keystore != 'true'
+        working-directory: android
+        run: |
+          ./gradlew assembleDebug \
+            -PversionCode=${{ github.run_number }} \
+            -PversionName=${{ steps.version.outputs.name }}
+      - name: Build & sign release APK
+        if: steps.keystore.outputs.has_keystore == 'true'
+        working-directory: android
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          ./gradlew assembleRelease \
+            -PversionCode=${{ github.run_number }} \
+            -PversionName=${{ steps.version.outputs.name }} \
+            -Pandroid.injected.signing.store.file=app/release.keystore \
+            -Pandroid.injected.signing.store.password="$ANDROID_KEYSTORE_PASSWORD" \
+            -Pandroid.injected.signing.key.alias="$ANDROID_KEY_ALIAS" \
+            -Pandroid.injected.signing.key.password="$ANDROID_KEY_PASSWORD"
+      - name: Locate built APK
+        id: apk
+        working-directory: android
+        run: |
+          if [ -f app/build/outputs/apk/release/app-release.apk ]; then
+            echo "path=android/app/build/outputs/apk/release/app-release.apk" >> "$GITHUB_OUTPUT"
+          else
+            echo "path=android/app/build/outputs/apk/debug/app-debug.apk" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: qada-${{ steps.version.outputs.name }}.apk
+          path: ${{ steps.apk.outputs.path }}
+          retention-days: 90

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Portail des Chefs SHM</title>
+    <meta name="description" content="Portail de supervision des chefs SHM — membres, séances et présences, avec accès hors ligne pendant les camps." />
+    <meta name="theme-color" content="#dc2626" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/favicon.ico" />
+  </head>
+
+  <body>
+    <div id="root"></div>
+
+    <script type="module" src="/client/App.tsx"></script>
+
+    <!--
+      AI chat widget (imfa.app). Loaded as a plain external script at
+      the HTML level — not as a React component — for the same reason
+      the service worker registration above is: it should load once
+      per browser session regardless of client-side routing/re-renders,
+      and a failure here (e.g. imfa.app unreachable) must never be
+      able to break the React app mounting.
+
+      This widget is a THIRD-PARTY hosted service and has no relation
+      to client/lib/offline/*: it requires network access to imfa.app
+      itself and will simply fail to appear when the device is
+      offline (async script, no error surfaced to the user) — exactly
+      like any other external embed. It is explicitly OUT of scope
+      for the offline strategy (members/attendance stay the offline
+      priority; this chat widget is online-only by nature, same as
+      the QR/PIN challenge generation).
+    -->
+    <script src="https://www.imfa.app/embed/chatbot/loader.js" data-chatbot="9ad4q4mb" async></script>
+
+    <script>
+      // Registered as a plain classic script (not a module import from
+      // App.tsx) so a syntax error or exception anywhere in the React
+      // app bundle can never prevent the service worker — and
+      // therefore offline app-shell loading — from registering.
+      // Skipped entirely in dev (see public/sw.js's docstring for why
+      // this SW only ever touches the built /assets/ output, which
+      // doesn't exist in `vite dev`) and when the browser has no SW
+      // support at all.
+      if ("serviceWorker" in navigator && location.hostname !== "localhost") {
+        window.addEventListener("load", () => {
+          navigator.serviceWorker.register("/sw.js").catch((error) => {
+            console.warn("[offline] Service worker registration failed:", error);
+          });
+        });
+      }
+    </script>
+  </body>
+</html>

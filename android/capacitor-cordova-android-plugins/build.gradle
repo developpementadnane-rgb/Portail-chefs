@@ -1,0 +1,21 @@
+// Placeholder module — kept empty since no Cordova-only plugins are
+// currently installed. `npx cap sync android` regenerates this
+// module's real content (and the plugin list inside
+// capacitor.settings.gradle) whenever a Cordova-compatible plugin is
+// added. Present so `include ':capacitor-cordova-android-plugins'` in
+// settings.gradle resolves on a fresh checkout, before the first
+// `cap sync` runs in CI.
+apply plugin: 'com.android.library'
+
+android {
+    namespace "com.getcapacitor.cordova.android.plugins"
+    compileSdk rootProject.ext.compileSdkVersion
+    defaultConfig {
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+}

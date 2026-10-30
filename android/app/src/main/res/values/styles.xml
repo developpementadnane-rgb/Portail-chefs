@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Base app theme. AppTheme.NoActionBarLaunch (used only for
+      MainActivity's launch, per the manifest) hides the native
+      ActionBar so the WebView content — which renders its own header
+      (see client/components/Header.tsx) — isn't duplicated by a
+      native title bar.
+
+      colorPrimary matches the shm-red brand color already used
+      throughout the web app (see tailwind.config for the shm-red
+      value referenced across client/pages/*.tsx) and public/manifest.webmanifest's
+      theme_color, so the native splash/status-bar chrome doesn't
+      visually clash with the web content the moment it loads.
+    -->
+    <style name="AppTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/colorPrimary</item>
+        <item name="colorPrimaryDark">@color/colorPrimaryDark</item>
+        <item name="colorAccent">@color/colorAccent</item>
+    </style>
+
+    <style name="AppTheme.NoActionBarLaunch" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
+        <item name="android:background">@color/colorPrimary</item>
+    </style>
+</resources>

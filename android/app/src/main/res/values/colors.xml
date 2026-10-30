@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Matches shm-red / shm-purple from tailwind.config.ts, and
+         public/manifest.webmanifest's theme_color, so native chrome
+         (splash background, status bar) matches the web app's brand
+         colors rather than Capacitor's generic default blue. -->
+    <color name="colorPrimary">#8b0000</color>
+    <color name="colorPrimaryDark">#4b0082</color>
+    <color name="colorAccent">#4b0082</color>
+</resources>

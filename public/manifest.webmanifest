@@ -1,0 +1,18 @@
+{
+  "name": "Portail des Chefs SHM",
+  "short_name": "Portail SHM",
+  "description": "Portail de supervision des chefs SHM — membres, séances et présences, avec accès hors ligne pendant les camps.",
+  "start_url": "/dashboard",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#dc2626",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "48x48",
+      "type": "image/x-icon"
+    }
+  ]
+}

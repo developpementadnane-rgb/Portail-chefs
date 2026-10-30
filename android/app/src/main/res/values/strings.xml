@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Portail SHM</string>
+    <string name="title_activity_main">Portail SHM</string>
+    <string name="package_name">com.shm.qada</string>
+    <string name="custom_url_scheme">com.shm.qada</string>
+</resources>
